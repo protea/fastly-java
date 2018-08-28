@@ -117,7 +117,6 @@ class FastlyUtils {
 	}
 
 	<T> T purge(final String url, final Object bodyObject, final Class<T> type, final String header) {
-		System.out.println("Req: " + url);
 		Response response = null;
 		try {
 			String body = convert(bodyObject);
@@ -127,9 +126,7 @@ class FastlyUtils {
 				String value = substringAfter(header, ":");
 				request.addHeader(key, value);
 			}
-			System.out.println("Req: " + request.getHeaders().toString());
 			response = request.purgeResource();
-			System.out.println(response.getBody());
 			return convert(response, type);
 		} catch (FastlyException e) {
 			return addError(type, e);
