@@ -1,0 +1,369 @@
+package cc.protea.fastly;
+
+import java.io.IOException;
+import java.io.UnsupportedEncodingException;
+import java.net.URLEncoder;
+
+import com.fasterxml.jackson.core.type.TypeReference;
+
+import cc.protea.util.http.Request;
+import cc.protea.util.http.Response;
+
+class FastlyUtils {
+
+	Fastly fastly;
+
+	FastlyUtils(Fastly fastly) {
+		this.fastly = fastly;
+	}
+
+	private static String version = "0.1";
+
+	<T> T options(final String url, final Class<T> type) {
+		Response response = null;
+		try {
+			response = getService(fastly.apiKey, url).optionsResource();
+			return convert(response, type);
+		} catch (FastlyException e) {
+			return addError(type, e);
+		} catch (IOException e) {
+			throw new FastlyException(e, response);
+		}
+	}
+
+	<T> T get(final String url, final Class<T> type) {
+		Response response = null;
+		try {
+			response = getService(fastly.apiKey, url).getResource();
+			return convert(response, type);
+		} catch (FastlyException e) {
+			return addError(type, e);
+		} catch (IOException e) {
+			throw new FastlyException(e, response);
+		}
+	}
+
+	<T> T get(final String url, final TypeReference<T> type) {
+		Response response = null;
+		try {
+			response = getService(fastly.apiKey, url).getResource();
+			return convert(response, type);
+		} catch (FastlyException e) {
+			return null;
+//			return addError(type, e);
+		} catch (IOException e) {
+			throw new FastlyException(e, response);
+		}
+	}
+
+	<T> T delete(final String url, final Object bodyObject, final Class<T> type) {
+		Response response = null;
+		try {
+			String body = convert(bodyObject);
+			response = getService(fastly.apiKey, url).setBody(body).deleteResource();
+			return convert(response, type);
+		} catch (FastlyException e) {
+			return addError(type, e);
+		} catch (IOException e) {
+			throw new FastlyException(e, response);
+		}
+	}
+
+	void delete(final String url, final Object bodyObject) {
+		Response response = null;
+		try {
+			String body = convert(bodyObject);
+			response = getService(fastly.apiKey, url).setBody(body).deleteResource();
+			checkResponse(response);
+		} catch (IOException e) {
+			throw new FastlyException(e, response);
+		}
+	}
+
+	<T> T put(final String url, final Object bodyObject, final Class<T> type) {
+		Response response = null;
+		try {
+			String body = convert(bodyObject);
+			response = getService(fastly.apiKey, url).setBody(body).putResource();
+			return convert(response, type);
+		} catch (FastlyException e) {
+			return addError(type, e);
+		} catch (IOException e) {
+			throw new FastlyException(e, response);
+		}
+	}
+
+	<T> T post(final String url, final Object bodyObject, final Class<T> type) {
+		return post(url, bodyObject, type, null);
+	}
+	
+	<T> T post(final String url, final Object bodyObject, final Class<T> type, final String header) {
+		Response response = null;
+		try {
+			String body = convert(bodyObject);
+			Request request = getService(fastly.apiKey, url).setBody(body);
+			if (header != null) {
+				String key = substringBefore(header, ":");
+				String value = substringAfter(header, ":");
+				request.addHeader(key, value);
+			}
+			response = request.postResource();
+			return convert(response, type);
+		} catch (FastlyException e) {
+			return addError(type, e);
+		} catch (IOException e) {
+			throw new FastlyException(e, response);
+		}
+	}
+
+	<T> T purge(final String url, final Object bodyObject, final Class<T> type, final String header) {
+		System.out.println("Req: " + url);
+		Response response = null;
+		try {
+			String body = convert(bodyObject);
+			Request request = getService(fastly.apiKey, url).setBody(body);
+			if (header != null) {
+				String key = substringBefore(header, ":");
+				String value = substringAfter(header, ":");
+				request.addHeader(key, value);
+			}
+			System.out.println("Req: " + request.getHeaders().toString());
+			response = request.purgeResource();
+			System.out.println(response.getBody());
+			return convert(response, type);
+		} catch (FastlyException e) {
+			return addError(type, e);
+		} catch (IOException e) {
+			throw new FastlyException(e, response);
+		}
+	}
+
+	String encode(final String in) {
+		try {
+			return URLEncoder.encode(in, "UTF-8").replaceAll("\\+", "%20");
+		} catch (UnsupportedEncodingException e) {
+			return in;
+		}
+	}
+
+	private Request getService(final String apiKey, String url) {
+		if (! contains(url, "://")) {
+			if (url.startsWith("/") && fastly.urlbase.endsWith("/")) {
+				url = url.substring(1);
+			}
+			url = fastly.urlbase + url;
+		}
+		return new Request(url)
+				.addHeader("Fastly-Key", apiKey)
+				.addHeader("Accept", "application/json")
+				.addHeader("Content-Type", "application/json")
+				.addHeader("User-Agent", "Protea Fastly Java SDK v" + version);
+	}
+
+	<T> T convert(final Response response, final Class<T> type) {
+		checkResponse(response);
+		return convert(response.getBody(), type);
+	}
+
+	<T> T convert(final Response response, final TypeReference<T> type) {
+		checkResponse(response);
+		return convert(response.getBody(), type);
+	}
+
+	void checkResponse(Response response) {
+		switch(response.getResponseCode()) {
+			case 200:
+				break; // success
+			default:
+				throw new FastlyException(null, "" + response.getResponseCode(), response.getResponseMessage());
+		}
+	}
+
+	<T> T convert(final String json, final Class<T> type) {
+		return convert(json, type, true);
+	}
+
+	<T> T convert(final String json, final TypeReference<T> type) {
+		return convert(json, type, true);
+	}
+
+	@SuppressWarnings({ "unchecked" } )
+	<T> T convert(final String json, final Class<T> type, final boolean handleErrors) {
+		if (json == null) {
+			return null;
+		}
+		if (String.class.equals(type)) {
+			return (T) json;
+		}
+		return FastlyJsonUtil.fromJson(json, type);
+	}
+
+	@SuppressWarnings({ "unchecked" } )
+	<T> T convert(final String json, final TypeReference<T> type, final boolean handleErrors) {
+		if (json == null) {
+			return null;
+		}
+		if (String.class.equals(type.getType())) {
+			return (T) json;
+		}
+		return FastlyJsonUtil.fromJson(json, type);
+	}
+
+	<T> T addError(final Class<T> type, final FastlyException in) {
+		try {
+			return addError(type.newInstance(), in);
+		} catch (FastlyException se) {
+			throw se;
+		} catch (Exception e) {
+			throw new FastlyException(e);
+		}
+	}
+
+	private <T> T addError(final T in, final FastlyException e) {
+		if (in instanceof FastlyResponse) {
+			FastlyResponse response = (FastlyResponse) in;
+			response.success = false;
+			response.errorMessage = e.errorMessage;
+		}
+		return in;
+	}
+
+	private String convert(final Object object) {
+		return FastlyJsonUtil.toJson(object);
+	}
+
+	public static boolean containsWhitespace(final CharSequence seq) {
+		if (isEmpty(seq)) {
+			return false;
+		}
+		final int strLen = seq.length();
+		for (int i = 0; i < strLen; i++) {
+			if (Character.isWhitespace(seq.charAt(i))) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	public static boolean isEmpty(final CharSequence cs) {
+		return cs == null || cs.length() == 0;
+	}
+
+	public static boolean contains(final CharSequence seq, final CharSequence searchSeq) {
+		if (seq == null || searchSeq == null) {
+			return false;
+		}
+		return indexOf(seq, searchSeq, 0) >= 0;
+	}
+
+	static int indexOf(final CharSequence cs, final CharSequence searchChar, final int start) {
+		return cs.toString().indexOf(searchChar.toString(), start);
+	}
+
+	public static final String EMPTY = "";
+	public static final int INDEX_NOT_FOUND = -1;
+
+	public static String substringAfter(final String str, final String separator) {
+		if (isEmpty(str)) {
+			return str;
+		}
+		if (separator == null) {
+			return EMPTY;
+		}
+		final int pos = str.indexOf(separator);
+		if (pos == INDEX_NOT_FOUND) {
+			return EMPTY;
+		}
+		return str.substring(pos + separator.length());
+	}
+
+	public static String substringBefore(final String str, final String separator) {
+		if (isEmpty(str) || separator == null) {
+			return str;
+		}
+		if (separator.length() == 0) {
+			return EMPTY;
+		}
+		final int pos = str.indexOf(separator);
+		if (pos == INDEX_NOT_FOUND) {
+			return str;
+		}
+		return str.substring(0, pos);
+	}
+
+	public static String trimToNull(final String str) {
+		final String ts = trim(str);
+		return isEmpty(ts) ? null : ts;
+	}
+
+	public static String trim(final String str) {
+		return str == null ? null : str.trim();
+	}
+
+	public static boolean isNumeric(final CharSequence cs) {
+		if (isEmpty(cs)) {
+			return false;
+		}
+		final int sz = cs.length();
+		for (int i = 0; i < sz; i++) {
+			if (Character.isDigit(cs.charAt(i)) == false) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	public static String substring(final String str, int start) {
+		if (str == null) {
+			return null;
+		}
+
+		// handle negatives, which means last n characters
+		if (start < 0) {
+			start = str.length() + start; // remember start is negative
+		}
+
+		if (start < 0) {
+			start = 0;
+		}
+		if (start > str.length()) {
+			return EMPTY;
+		}
+
+		return str.substring(start);
+	}
+
+	public static String substring(final String str, int start, int end) {
+		if (str == null) {
+			return null;
+		}
+
+		// handle negatives
+		if (end < 0) {
+			end = str.length() + end; // remember end is negative
+		}
+		if (start < 0) {
+			start = str.length() + start; // remember start is negative
+		}
+
+		// check length next
+		if (end > str.length()) {
+			end = str.length();
+		}
+
+		// if start is greater than end, return ""
+		if (start > end) {
+			return EMPTY;
+		}
+
+		if (start < 0) {
+			start = 0;
+		}
+		if (end < 0) {
+			end = 0;
+		}
+
+		return str.substring(start, end);
+	}
+
+}
